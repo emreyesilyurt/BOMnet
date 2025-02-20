@@ -1,0 +1,5 @@
+{
+    "Suppliers": [
+        {"name": "Supplier A", "parts": ["Resistor", "Capacitor"], "price": {"Resistor": 0.02, "Capacitor": 0.05}}
+    ]
+}
