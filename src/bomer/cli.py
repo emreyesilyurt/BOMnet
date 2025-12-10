@@ -31,8 +31,11 @@ def _add_analyze_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
     analyze_parser.add_argument(
         "--suppliers",
-        help="Path to suppliers JSON file. "
-             "If omitted, taken from config (suppliers.path in bomer.yaml).",
+        help=(
+            "Path to suppliers JSON file. "
+            "If omitted, taken from config (suppliers.path in bomer.yaml) "
+            "or defaults to data/suppliers.json."
+        ),
     )
     analyze_parser.add_argument(
         "--output-dir",
@@ -76,20 +79,24 @@ def _run_analyze(args: argparse.Namespace) -> None:
     # 1) Load config
     config = load_config(args.config)
 
-    # 2) Paths
+    # 2) Resolve paths
     bom_path = Path(args.bom)
-    suppliers_path = (
-        Path(args.suppliers)
-        if args.suppliers
-        else Path(config.get("suppliers", {}).get("path", "data/suppliers.json"))
-    )
+
+    suppliers_path = None
+    if args.suppliers:
+        suppliers_path = Path(args.suppliers)
+    else:
+        suppliers_cfg = config.get("suppliers", {})
+        suppliers_path_str = suppliers_cfg.get("path", "data/suppliers.json")
+        suppliers_path = Path(suppliers_path_str)
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 3) Load BOM
     bom_df = load_bom(bom_path)
 
-    # 4) Normalize columns
+    # 4) Normalize columns (schema can optionally use config later)
     normalized_bom = normalize_bom_columns(bom_df)
 
     # 5) Validate
@@ -102,7 +109,7 @@ def _run_analyze(args: argparse.Namespace) -> None:
     optimized_bom = optimize_bom(normalized_bom)
 
     # 8) Cost & Risk
-    cost_summary = analyze_costs(optimized_bom, suppliers_data)
+    cost_summary = analyze_costs(optimized_bom, suppliers_data, config=config)
     risk_summary = analyze_risk(optimized_bom, suppliers_data, config=config)
 
     # 9) Write artifacts
@@ -128,14 +135,14 @@ def _run_analyze(args: argparse.Namespace) -> None:
     print(f"[BOMER] Analysis complete. Artifacts written to: {output_dir}")
 
 
-def main(argv: Optional[list[str]] = None) -> None:
+def main(argv: Optional[list] = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
     if args.command == "analyze":
         _run_analyze(args)
     else:
-        # If no subcommand provided, show help
+        # If no subcommand provided, show help.
         parser.print_help()
 
 
