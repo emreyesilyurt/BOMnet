@@ -1,5 +1,19 @@
 {
-    "Suppliers": [
-        {"name": "Supplier A", "parts": ["Resistor", "Capacitor"], "price": {"Resistor": 0.02, "Capacitor": 0.05}}
-    ]
+  "currency": "USD",
+  "suppliers": [
+    {
+      "name": "SupplierA",
+      "prices": {
+        "RES-10K-1%": 0.01,
+        "CAP-100NF-50V": 0.02
+      }
+    },
+    {
+      "name": "SupplierB",
+      "prices": {
+        "RES-10K-1%": 0.009,
+        "IC-OPAMP-XYZ": 0.35
+      }
+    }
+  ]
 }

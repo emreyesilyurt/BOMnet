@@ -1,0 +1,11 @@
+suppliers:
+  path: data/suppliers.json
+
+cost:
+  currency: USD
+  default_volume: 1000
+
+risk:
+  single_source_weight: 0.4
+  missing_price_weight: 0.3
+  lifecycle_weight: 0.3
