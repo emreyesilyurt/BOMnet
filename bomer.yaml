@@ -10,4 +10,7 @@ risk:
   missing_price_weight: 0.3
   lifecycle_weight: 0.3
 
-
+schema:
+  aliases:
+    "manufacturer part": "PartNumber"
+    "vendor": "Manufacturer"
