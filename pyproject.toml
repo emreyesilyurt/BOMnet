@@ -4,17 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bomer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Bomer – deterministic BoM analysis and optimization engine"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
   { name = "Emre Can Yesilyurt" }
 ]
+license = { text = "MIT" }
 dependencies = [
   "pandas>=1.5",
   "pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/emreyesilyurt/bomer"
+Source = "https://github.com/emreyesilyurt/bomer"
+Issues = "https://github.com/emreyesilyurt/bomer/issues"
 
 [project.scripts]
 bomer = "bomer.cli:main"
