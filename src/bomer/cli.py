@@ -3,12 +3,8 @@ from pathlib import Path
 from typing import Optional
 
 from bomer import __version__
-from bomer.core.config import load_config
-from bomer.core.loader import load_bom, load_suppliers
-from bomer.core.schema import normalize_bom_columns, validate_bom
-from bomer.engines.cost import analyze_costs
-from bomer.engines.optimizer import optimize_bom
-from bomer.engines.risk import analyze_risk
+from bomer.api import run_analysis
+from bomer.core.exceptions import BomerError
 from bomer.reporting.report_writer import (
     write_normalized_bom,
     write_optimized_bom,
@@ -69,50 +65,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Available commands",
     )
 
-    # v0.1.x: only 'analyze' is implemented, but structure is ready for more.
     _add_analyze_subparser(subparsers)
 
     return parser
 
 
 def _run_analyze(args: argparse.Namespace) -> None:
-    # 1) Load config
-    config = load_config(args.config)
-
-    # 2) Resolve paths
     bom_path = Path(args.bom)
+    suppliers_path = Path(args.suppliers) if args.suppliers else None
+    config_path = Path(args.config) if args.config else None
 
-    suppliers_path = None
-    if args.suppliers:
-        suppliers_path = Path(args.suppliers)
-    else:
-        suppliers_cfg = config.get("suppliers", {})
-        suppliers_path_str = suppliers_cfg.get("path", "data/suppliers.json")
-        suppliers_path = Path(suppliers_path_str)
+    result = run_analysis(
+        bom_path=bom_path,
+        suppliers_path=suppliers_path,
+        config_path=config_path,
+    )
+
+    normalized_bom = result["normalized_bom"]
+    optimized_bom = result["optimized_bom"]
+    issues = result["issues"]
+    cost_summary = result["cost_summary"]
+    risk_summary = result["risk_summary"]
+    bom_path = result["bom_path"]
+    suppliers_path = result["suppliers_path"]
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 3) Load BOM
-    bom_df = load_bom(bom_path)
-
-    # 4) Normalize columns (schema can optionally use config later)
-    normalized_bom = normalize_bom_columns(bom_df)
-
-    # 5) Validate
-    issues = validate_bom(normalized_bom)
-
-    # 6) Load suppliers
-    suppliers_data = load_suppliers(suppliers_path)
-
-    # 7) Optimize BOM
-    optimized_bom = optimize_bom(normalized_bom)
-
-    # 8) Cost & Risk
-    cost_summary = analyze_costs(optimized_bom, suppliers_data, config=config)
-    risk_summary = analyze_risk(optimized_bom, suppliers_data, config=config)
-
-    # 9) Write artifacts
     write_normalized_bom(normalized_bom, output_dir / "normalized_bom.csv")
     write_optimized_bom(optimized_bom, output_dir / "optimized_bom.csv")
     write_analysis_json(
@@ -140,9 +119,12 @@ def main(argv: Optional[list] = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "analyze":
-        _run_analyze(args)
+        try:
+            _run_analyze(args)
+        except BomerError as e:
+            print(f"[BOMER] Error: {e}")
+            raise SystemExit(1)
     else:
-        # If no subcommand provided, show help.
         parser.print_help()
 
 

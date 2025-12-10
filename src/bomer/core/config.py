@@ -3,6 +3,8 @@ from typing import Any, Dict, Optional
 
 import yaml
 
+from bomer.core.exceptions import ConfigError
+
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
     if not path.exists():
@@ -10,7 +12,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
-        raise ValueError(f"Config file {path} must contain a YAML mapping at top level.")
+        raise ConfigError(f"Config file {path} must contain a YAML mapping at top level.")
     return data
 
 
@@ -28,22 +30,22 @@ def validate_config(config: Dict[str, Any]) -> None:
             try:
                 val = float(risk_cfg[key])
             except (TypeError, ValueError):
-                raise ValueError(f"risk.{key} must be a number.")
+                raise ConfigError(f"risk.{key} must be a number.")
             if not (0.0 <= val <= 1.0):
-                raise ValueError(f"risk.{key} must be between 0 and 1, got {val}.")
+                raise ConfigError(f"risk.{key} must be between 0 and 1, got {val}.")
 
     suppliers_cfg = config.get("suppliers", {})
     if "path" in suppliers_cfg and not isinstance(suppliers_cfg["path"], str):
-        raise ValueError("suppliers.path must be a string if provided.")
+        raise ConfigError("suppliers.path must be a string if provided.")
 
     cost_cfg = config.get("cost", {})
     if "default_volume" in cost_cfg:
         try:
             vol = float(cost_cfg["default_volume"])
         except (TypeError, ValueError):
-            raise ValueError("cost.default_volume must be numeric if provided.")
+            raise ConfigError("cost.default_volume must be numeric if provided.")
         if vol <= 0:
-            raise ValueError("cost.default_volume must be positive if provided.")
+            raise ConfigError("cost.default_volume must be positive if provided.")
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
