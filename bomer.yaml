@@ -9,3 +9,5 @@ risk:
   single_source_weight: 0.4
   missing_price_weight: 0.3
   lifecycle_weight: 0.3
+
+
