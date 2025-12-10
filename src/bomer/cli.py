@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from bomer.core.config import load_config
 from bomer.core.loader import load_bom, load_suppliers
@@ -15,6 +15,7 @@ from bomer.reporting.report_writer import (
     write_issues_json,
     write_summary_text,
 )
+from bomer.core.exceptions import BomerError  # ⬅️ new
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -49,22 +50,20 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> None:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
+def _run_analyze(
+    bom_path: Path,
+    suppliers_path: Path,
+    output_dir: Path,
+    config_path: Optional[Path] = None,
+) -> None:
+    """
+    Core 'analyze' pipeline.
 
-    if args.command != "analyze":
-        parser.error("Only 'analyze' command is supported in v0.1.")
+    Raises BomerError (or subclasses) for domain-level problems so that
+    main() can handle them cleanly.
+    """
+    config = load_config(str(config_path) if config_path is not None else None)
 
-    config = load_config(args.config)
-
-    bom_path = Path(args.bom)
-    suppliers_path = (
-        Path(args.suppliers)
-        if args.suppliers
-        else Path(config.get("suppliers", {}).get("path", "data/suppliers.json"))
-    )
-    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Load BOM
@@ -106,7 +105,46 @@ def main(argv: Optional[list[str]] = None) -> None:
         output_dir / "summary.txt",
     )
 
-    print(f"[BOMER] Analysis complete. Artifacts written to: {output_dir}")
+
+def main(argv: Optional[List[str]] = None) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command != "analyze":
+        parser.error("Only 'analyze' command is supported in v0.1.")
+
+    bom_path = Path(args.bom)
+    config_path = Path(args.config) if args.config else None
+
+    # suppliers path may come from CLI or config
+    config = load_config(str(config_path) if config_path is not None else None)
+    suppliers_path = (
+        Path(args.suppliers)
+        if args.suppliers
+        else Path(config.get("suppliers", {}).get("path", "data/suppliers.json"))
+    )
+
+    output_dir = Path(args.output_dir)
+
+    try:
+        _run_analyze(
+            bom_path=bom_path,
+            suppliers_path=suppliers_path,
+            output_dir=output_dir,
+            config_path=config_path,
+        )
+        print(f"[BOMER] Analysis complete. Artifacts written to: {output_dir}")
+    except BomerError as e:
+        # Known, domain-level error
+        print(f"[BOMER] Error: {e}")
+        raise SystemExit(1)
+    except KeyboardInterrupt:
+        print("\n[BOMER] Aborted by user.")
+        raise SystemExit(130)
+    except Exception as e:
+        # Unexpected bug – keep it visible but mark as unexpected
+        print(f"[BOMER] Unexpected error: {e}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
