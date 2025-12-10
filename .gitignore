@@ -1,32 +1,37 @@
 # macOS
 .DS_Store
 
-# Python
+# Python bytecode / cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.so
 
-# Environments
+# Virtual environments
 .env
 .venv
-venv/
 env/
+venv/
 
-# Packaging
+# Packaging artifacts
 build/
 dist/
 *.egg-info/
+.eggs/
 
-# Tools & caches
+# Test & coverage
 .pytest_cache/
-.mypy_cache/
 .coverage
 htmlcov/
+nosetests.xml
+coverage.xml
 
-# Editors / IDE
+# IDE / Editor settings
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# Project-specific
+output/
