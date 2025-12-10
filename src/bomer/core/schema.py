@@ -1,121 +1,151 @@
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-# Canonical column names Bomer will use internally.
-CANONICAL_COLUMNS = [
+# Canonical columns we want in the BOM
+CANONICAL_COLUMNS: List[str] = [
     "PartNumber",
+    "Quantity",
     "Manufacturer",
     "Description",
-    "Quantity",
     "LifecycleStatus",
     "RoHS",
 ]
 
-
-# Common variations -> canonical name
-_COLUMN_ALIASES = {
-    "part": "PartNumber",
-    "partnumber": "PartNumber",
+# Default alias map: lowercased source column -> canonical column
+_DEFAULT_ALIAS_MAP: Dict[str, str] = {
     "mpn": "PartNumber",
     "mfr part #": "PartNumber",
-    "mfr_part_number": "PartNumber",
-    "manufacturer": "Manufacturer",
-    "mfr": "Manufacturer",
-    "desc": "Description",
-    "description": "Description",
+    "mfr part": "PartNumber",
+    "part number": "PartNumber",
     "qty": "Quantity",
     "quantity": "Quantity",
-    "life_cycle": "LifecycleStatus",
+    "manufacturer": "Manufacturer",
+    "mfr": "Manufacturer",
+    "description": "Description",
     "lifecycle": "LifecycleStatus",
-    "lifecyclestatus": "LifecycleStatus",
+    "lifecycle status": "LifecycleStatus",
     "rohs": "RoHS",
-    "rohs_status": "RoHS",
+    "rohs status": "RoHS",
 }
 
 
-def _normalize_header(name: str) -> str:
-    return name.strip().lower().replace(" ", "").replace("-", "").replace("#", "")
-
-
-def normalize_bom_columns(df: pd.DataFrame) -> pd.DataFrame:
+def _build_alias_map(config: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     """
-    Rename columns to canonical names where possible, leaving others untouched.
-    """
-    new_columns: Dict[str, str] = {}
+    Merge default alias map with optional overrides from config:
 
+    schema:
+      aliases:
+        "manufacturer part": "PartNumber"
+        "vendor": "Manufacturer"
+    """
+    alias_map = dict(_DEFAULT_ALIAS_MAP)
+    if config is None:
+        return alias_map
+
+    schema_cfg = config.get("schema", {})
+    user_aliases = schema_cfg.get("aliases", {})
+
+    if isinstance(user_aliases, dict):
+        for src, dest in user_aliases.items():
+            if not isinstance(src, str) or not isinstance(dest, str):
+                continue
+            alias_map[src.strip().lower()] = dest.strip()
+
+    return alias_map
+
+
+def normalize_bom_columns(
+    df: pd.DataFrame,
+    config: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    """
+    Rename BOM columns into canonical ones using alias mapping.
+
+    - Uses default alias map plus optional overrides from config.
+    - Ensures canonical columns exist via ensure_canonical_columns().
+    """
+    alias_map = _build_alias_map(config)
+
+    # Build rename map based on current columns
+    rename_map: Dict[str, str] = {}
     for col in df.columns:
-        key = _normalize_header(col)
-        if key in _COLUMN_ALIASES:
-            new_columns[col] = _COLUMN_ALIASES[key]
-        else:
-            new_columns[col] = col  # keep original
+        key = str(col).strip().lower()
+        if key in alias_map:
+            rename_map[col] = alias_map[key]
 
-    return df.rename(columns=new_columns)
+    result = df.rename(columns=rename_map).copy()
+    result = ensure_canonical_columns(result)
+    return result
 
 
-def validate_bom(df: pd.DataFrame) -> List[dict]:
+def ensure_canonical_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Returns a list of issues.
-    Each issue is a dict with 'row', 'type', 'message'.
+    Ensure that all canonical columns exist in the DataFrame.
+
+    If a canonical column is missing, it is added with NA values.
     """
-    issues: List[dict] = []
+    for col in CANONICAL_COLUMNS:
+        if col not in df.columns:
+            df[col] = pd.NA
+    return df
 
-    # Basic checks
-    has_part = "PartNumber" in df.columns
-    has_qty = "Quantity" in df.columns
 
-    if not has_part:
+def validate_bom(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Perform simple BOM validation.
+
+    Returns a list of issue dictionaries, e.g.:
+
+    {
+      "row_index": 0,
+      "field": "Quantity",
+      "message": "Quantity is missing or not numeric"
+    }
+    """
+    issues: List[Dict[str, Any]] = []
+
+    if "PartNumber" not in df.columns or "Quantity" not in df.columns:
         issues.append(
             {
-                "row": None,
-                "type": "missing_column",
-                "message": "Missing required column: PartNumber",
+                "row_index": None,
+                "field": "schema",
+                "message": "Required columns PartNumber and Quantity are missing.",
             }
         )
-    if not has_qty:
-        issues.append(
-            {
-                "row": None,
-                "type": "missing_column",
-                "message": "Missing required column: Quantity",
-            }
-        )
-
-    if not has_part or not has_qty:
         return issues
 
     for idx, row in df.iterrows():
         part = str(row.get("PartNumber", "")).strip()
-        qty = row.get("Quantity", 0)
+        qty = row.get("Quantity", None)
 
         if not part:
             issues.append(
                 {
-                    "row": int(idx),
-                    "type": "empty_part_number",
-                    "message": "Empty PartNumber.",
+                    "row_index": int(idx),
+                    "field": "PartNumber",
+                    "message": "PartNumber is empty.",
                 }
             )
 
         try:
-            qty_value = float(qty)
+            qty_val = float(qty)
         except (TypeError, ValueError):
             issues.append(
                 {
-                    "row": int(idx),
-                    "type": "invalid_quantity",
-                    "message": f"Quantity is not a number: {qty}",
+                    "row_index": int(idx),
+                    "field": "Quantity",
+                    "message": "Quantity is missing or not numeric.",
                 }
             )
             continue
 
-        if qty_value <= 0:
+        if qty_val <= 0:
             issues.append(
                 {
-                    "row": int(idx),
-                    "type": "non_positive_quantity",
-                    "message": f"Quantity must be > 0, got {qty_value}",
+                    "row_index": int(idx),
+                    "field": "Quantity",
+                    "message": "Quantity must be positive.",
                 }
             )
 

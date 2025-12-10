@@ -2,12 +2,9 @@ import argparse
 from pathlib import Path
 from typing import Optional
 
-from bomer.core.config import load_config
-from bomer.core.loader import load_bom, load_suppliers
-from bomer.core.schema import normalize_bom_columns, validate_bom
-from bomer.engines.cost import analyze_costs
-from bomer.engines.optimizer import optimize_bom
-from bomer.engines.risk import analyze_risk
+from bomer import __version__
+from bomer.api import run_analysis
+from bomer.core.exceptions import BomerError
 from bomer.reporting.report_writer import (
     write_normalized_bom,
     write_optimized_bom,
@@ -17,76 +14,84 @@ from bomer.reporting.report_writer import (
 )
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="bomer",
-        description="Bomer – deterministic BoM analysis and optimization engine",
+def _add_analyze_subparser(subparsers: argparse._SubParsersAction) -> None:
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Analyze a BOM: normalize, optimize, compute cost and risk, and write reports.",
     )
-    parser.add_argument(
-        "command",
-        choices=["analyze"],
-        help="Command to run. Currently only 'analyze' is implemented.",
-    )
-    parser.add_argument(
+
+    analyze_parser.add_argument(
         "--bom",
         required=True,
         help="Path to BOM CSV file.",
     )
-    parser.add_argument(
+    analyze_parser.add_argument(
         "--suppliers",
-        help="Path to suppliers JSON file. If omitted, taken from config.",
+        help=(
+            "Path to suppliers JSON file. "
+            "If omitted, taken from config (suppliers.path in bomer.yaml) "
+            "or defaults to data/suppliers.json."
+        ),
     )
-    parser.add_argument(
+    analyze_parser.add_argument(
         "--output-dir",
         default="output",
         help="Directory to write reports and artifacts (default: ./output).",
     )
-    parser.add_argument(
+    analyze_parser.add_argument(
         "--config",
-        default=None,
-        help="Path to bomer YAML config file (default: ./bomer.yaml if exists).",
+        help="Path to bomer YAML config file (default: ./bomer.yaml if present).",
     )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="bomer",
+        description="Bomer – deterministic BoM analysis and optimization engine.",
+    )
+
+    # Global flags
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show Bomer version and exit.",
+    )
+
+    subparsers = parser.add_subparsers(
+        dest="command",
+        title="subcommands",
+        metavar="<command>",
+        help="Available commands",
+    )
+
+    _add_analyze_subparser(subparsers)
+
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> None:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    if args.command != "analyze":
-        parser.error("Only 'analyze' command is supported in v0.1.")
-
-    config = load_config(args.config)
-
+def _run_analyze(args: argparse.Namespace) -> None:
     bom_path = Path(args.bom)
-    suppliers_path = (
-        Path(args.suppliers)
-        if args.suppliers
-        else Path(config.get("suppliers", {}).get("path", "data/suppliers.json"))
+    suppliers_path = Path(args.suppliers) if args.suppliers else None
+    config_path = Path(args.config) if args.config else None
+
+    result = run_analysis(
+        bom_path=bom_path,
+        suppliers_path=suppliers_path,
+        config_path=config_path,
     )
+
+    normalized_bom = result["normalized_bom"]
+    optimized_bom = result["optimized_bom"]
+    issues = result["issues"]
+    cost_summary = result["cost_summary"]
+    risk_summary = result["risk_summary"]
+    bom_path = result["bom_path"]
+    suppliers_path = result["suppliers_path"]
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Load BOM
-    bom_df = load_bom(bom_path)
-
-    # 2) Normalize columns
-    normalized_bom = normalize_bom_columns(bom_df)
-
-    # 3) Validate
-    issues = validate_bom(normalized_bom)
-
-    # 4) Load suppliers
-    suppliers_data = load_suppliers(suppliers_path)
-
-    # 5) Optimize BOM (dedupe, etc.)
-    optimized_bom = optimize_bom(normalized_bom)
-
-    # 6) Cost & Risk
-    cost_summary = analyze_costs(optimized_bom, suppliers_data)
-    risk_summary = analyze_risk(optimized_bom, suppliers_data, config=config)
-
-    # 7) Write artifacts
     write_normalized_bom(normalized_bom, output_dir / "normalized_bom.csv")
     write_optimized_bom(optimized_bom, output_dir / "optimized_bom.csv")
     write_analysis_json(
@@ -107,6 +112,20 @@ def main(argv: Optional[list[str]] = None) -> None:
     )
 
     print(f"[BOMER] Analysis complete. Artifacts written to: {output_dir}")
+
+
+def main(argv: Optional[list] = None) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "analyze":
+        try:
+            _run_analyze(args)
+        except BomerError as e:
+            print(f"[BOMER] Error: {e}")
+            raise SystemExit(1)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
